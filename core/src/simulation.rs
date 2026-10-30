@@ -6,12 +6,13 @@ use std::ops::Range;
 
 use crate::geometry::{Rect, V2, smoothstep};
 use crate::layer::SnowLayer;
+use crate::mod_config::ModProfile; // SNOWHUSH_MODKIT
 
 pub type WindowId = isize;
 
 pub const COLUMN_WIDTH: f32 = 2.0;
-const GROUND_DEPTH: f32 = 40.0;
-const LEDGE_DEPTH: f32 = 14.0;
+const GROUND_DEPTH: f32 = 72.0; // SNOWHUSH_MODKIT
+const LEDGE_DEPTH: f32 = 72.0; // SNOWHUSH_MODKIT
 const THAW_DEPTH: f32 = 8.0;
 const LEDGE_THAW_DEPTH: f32 = 4.0;
 const THAW_RATE: f32 = 0.02;
@@ -230,6 +231,7 @@ pub struct SnowSimulation {
     pace: Pace,
     snowfall: Snowfall,
     density: f32,
+    profile: ModProfile, // SNOWHUSH_MODKIT
     pub thaws: bool,
     pub accumulates: bool,
     /// Side edges, left and right, with no display past them: a window slid past one leaves its snow heaped against the edge.
@@ -263,6 +265,7 @@ impl SnowSimulation {
             pace: Pace::Calm,
             snowfall,
             density: 1.0,
+            profile: ModProfile::default(),
             thaws: false,
             accumulates: true,
             walls: (false, false),
@@ -311,6 +314,27 @@ impl SnowSimulation {
         self.pace
     }
 
+    /// Swap weather profile live, without restarting the desktop overlay.
+    pub fn set_mod_profile(&mut self, profile: ModProfile) {
+        if self.profile.season != profile.season {
+            // Remove stale snow and particles on change to a different season.
+            self.air.flakes.clear();
+            self.air.grains.clear();
+            self.air.motes.clear();
+            for layer in &mut self.layers {
+                layer.heights.fill(0.0);
+                layer.packed.fill(0.0);
+                layer.refresh_top();
+            }
+            self.dormant.clear();
+            self.parking.clear();
+        } else if self.profile != profile {
+            // Old particles keep their original look unless we replace them.
+            self.air.flakes.clear();
+        }
+        self.profile = profile;
+        self.update_target();
+    }
     pub fn set_snowfall(&mut self, snowfall: Snowfall) {
         if snowfall == Snowfall::Variable && self.snowfall != Snowfall::Variable {
             self.next_shift = self.air.clock;
@@ -387,7 +411,12 @@ impl SnowSimulation {
             self.layers[0].deposit(area, x, true);
         }
 
+        // Bound the mound height without changing the original settling algorithm.
+        let cap = self.profile.cap_height(); // SNOWHUSH_MODKIT
         for layer in &mut self.layers {
+            for height in &mut layer.heights {
+                *height = height.min(cap);
+            }
             layer.refresh_top();
             layer.previous_base_y = layer.base().y;
         }
@@ -606,6 +635,7 @@ impl SnowSimulation {
             self.layers[li].release_support();
         }
 
+        let radius = self.profile.cursor_radius(); // SNOWHUSH_MODKIT
         let center = point + CURSOR_OFFSET;
         let Some(previous) = self.air.cursor.replace(center) else { return };
 
@@ -617,10 +647,10 @@ impl SnowSimulation {
         }
         self.air.cursor_velocity += (velocity - self.air.cursor_velocity) * 0.5;
 
-        let low = center.y.min(previous.y) - CURSOR_RADIUS;
-        let high = center.y.max(previous.y) + CURSOR_RADIUS;
-        let left = center.x.min(previous.x) - CURSOR_RADIUS;
-        let right = center.x.max(previous.x) + CURSOR_RADIUS;
+        let low = center.y.min(previous.y) - radius;
+        let high = center.y.max(previous.y) + radius;
+        let left = center.x.min(previous.x) - radius;
+        let right = center.x.max(previous.x) + radius;
         let touched: Vec<usize> = (0..self.layers.len())
             .filter(|&li| {
                 let layer = &self.layers[li];
@@ -639,15 +669,15 @@ impl SnowSimulation {
         let distance = delta.length();
         if distance > 400.0 {
             for &li in &touched {
-                self.air.carve(&mut self.layers[li], li, center, V2::ZERO, 0.0, true);
+                self.air.carve(&mut self.layers[li], li, center, V2::ZERO, 0.0, true, radius);
             }
             return;
         }
-        let steps = (distance / (CURSOR_RADIUS * 0.5)) as usize + 1;
+        let steps = (distance / (radius * 0.5)) as usize + 1;
         for step in 1..=steps {
             let position = previous + delta * (step as f32 / steps as f32);
             for &li in &touched {
-                self.air.carve(&mut self.layers[li], li, position, velocity, distance / steps as f32, step == steps);
+                self.air.carve(&mut self.layers[li], li, position, velocity, distance / steps as f32, step == steps, radius);
             }
         }
     }
@@ -655,7 +685,12 @@ impl SnowSimulation {
     // Particles
 
     fn advance_flakes(&mut self, dt: f32) {
-        let wind = self.air.breeze();
+        let gust = if self.profile.storm {
+            // Slow gust envelope, plus a shorter stronger pulse.
+            let t = self.air.clock as f32;
+            (t * 0.47).sin() * 85.0 + (t * 1.33).sin().powi(3) * 110.0
+        } else { 0.0 };
+        let wind = self.air.breeze() * self.profile.wind_multiplier() + gust;
         let follow = (dt * 1.2).min(1.0);
         let settle = (dt * 1.6).min(1.0);
         let wake_radius: f32 = 80.0;
@@ -694,7 +729,7 @@ impl SnowSimulation {
             }
             let sway = (flake.phase.cos() + 0.3 * (flake.phase * 2.3).cos()) * flake.sway_amount;
             let flutter = 1.0 + 0.12 * (flake.phase * 1.3).sin();
-            if flake.tint_amount > 0.0 {
+            if flake.tint_amount > 0.0 && self.profile.season == 0 && self.profile.color == 0 {
                 flake.tint_amount = (flake.tint_amount - dt * 1.3).max(0.0);
             }
             let previous_y = flake.position.y;
@@ -776,10 +811,52 @@ impl SnowSimulation {
         }
     }
 
+    /// Visual styles reuse the GPU sprite format. Autumn/spring are colored fluttering
+    /// particles, not textured leaf/petal meshes. Rain uses fast hard droplets.
+    fn stylize_flake(&self, flake: &mut Flake) {
+        let p = self.profile;
+        flake.size *= p.size_multiplier();
+        flake.fall_speed *= p.speed_multiplier();
+        flake.velocity.y = -flake.fall_speed;
+        if p.color != 0 || p.season != 0 {
+            flake.tint = p.color_rgb();
+            flake.tint_amount = 1.0;
+        }
+        match p.season {
+            1 => { // rain
+                flake.fall_speed *= 4.0;
+                flake.velocity.y = -flake.fall_speed;
+                flake.size = (flake.size * 0.42).max(0.8);
+                flake.soft = 0.06;
+                flake.alpha = 0.88;
+                flake.sway_amount *= 0.12;
+                flake.settles = false;
+            }
+            2 => { // autumn
+                flake.fall_speed *= 0.68;
+                flake.velocity.y = -flake.fall_speed;
+                flake.size *= 1.3;
+                flake.sway_amount *= 2.0;
+                flake.soft = 0.25;
+                flake.settles = false;
+            }
+            3 => { // spring
+                flake.fall_speed *= 0.74;
+                flake.velocity.y = -flake.fall_speed;
+                flake.size *= 1.12;
+                flake.sway_amount *= 1.8;
+                flake.soft = 0.35;
+                flake.settles = false;
+            }
+            _ => {}
+        }
+    }
     fn recycle(&mut self, i: usize) {
         if self.air.flakes.len() <= self.target_flakes && !self.air.blowing() {
             let y = self.height + self.air.random.range(4.0, 40.0);
-            self.air.flakes[i] = self.air.make_flake(self.width, y);
+            let mut flake = self.air.make_flake(self.width, y);
+            self.stylize_flake(&mut flake);
+            self.air.flakes[i] = flake;
         } else {
             self.air.flakes.swap_remove(i);
         }
@@ -792,7 +869,8 @@ impl SnowSimulation {
         }
         while self.air.flakes.len() < self.target_flakes {
             let y = self.height + self.air.random.range(0.0, self.height * 0.8);
-            let flake = self.air.make_flake(self.width, y);
+            let mut flake = self.air.make_flake(self.width, y);
+            self.stylize_flake(&mut flake);
             self.air.flakes.push(flake);
         }
     }
@@ -935,7 +1013,7 @@ impl SnowSimulation {
 
     fn update_target(&mut self) {
         let per_megapoint = if self.snowfall_held { 0.0 } else { self.snowfall.flakes_per_megapoint() };
-        self.target_flakes = (per_megapoint * self.air.strength * self.density * self.width * self.height / 1_000_000.0) as usize;
+        self.target_flakes = (per_megapoint * self.air.strength * self.density * self.profile.density_multiplier() * self.width * self.height / 1_000_000.0) as usize;
     }
 }
 
@@ -1291,8 +1369,8 @@ impl Air {
         self.release(area, edge_point(layer, left_side), V2::new(velocity, -10.0), V2::new(0.25, 1.0), 0.0);
     }
 
-    fn carve(&mut self, layer: &mut SnowLayer, li: usize, center: V2, velocity: V2, travel: f32, last: bool) {
-        let radius = CURSOR_RADIUS;
+    fn carve(&mut self, layer: &mut SnowLayer, li: usize, center: V2, velocity: V2, travel: f32, last: bool, radius: f32) {
+        // SNOWHUSH_MODKIT: configurable cursor radius
         let base = layer.base();
         let lower = (((center.x - radius - base.x) / COLUMN_WIDTH).floor() as i64).max(0);
         let upper = (((center.x + radius - base.x) / COLUMN_WIDTH).floor() as i64).min(layer.count() as i64 - 1);

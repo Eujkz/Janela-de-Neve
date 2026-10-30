@@ -3,6 +3,7 @@
 
 pub mod geometry;
 pub mod layer;
+pub mod mod_config; // SNOWHUSH_MODKIT
 pub mod simulation;
 pub mod version;
 
