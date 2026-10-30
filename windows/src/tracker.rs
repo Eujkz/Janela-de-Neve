@@ -169,16 +169,23 @@ impl Tracker {
             if r.right <= area.left || r.left >= area.right || r.bottom <= area.top || r.top >= area.bottom {
                 continue;
             }
-            let frame = Rect {
+            let mut frame = Rect { // SNOWHUSH_MODKIT
                 x: (r.left - area.left) as f32 * sx,
                 y: (area.bottom - r.bottom) as f32 * sy,
                 width: (r.right - r.left) as f32 * sx,
                 height: (r.bottom - r.top) as f32 * sy,
             };
-            let room_above = (r.top - area.top) as f32 * sy >= 6.0 && frame.max_y() < height;
+            // A maximized Explorer/browser fills the screen and normally fails
+            // the upstream `room_above` / `fills_screen` tests. Put a virtual
+            // snow ledge 24 DIPs INSIDE its title-bar area, where it is visible.
+            // This is an intentional visual workaround, not a real outside edge.
+            if window.zoomed && frame.max_y() >= height - 3.0 {
+                frame.height = (height - 24.0 - frame.y).max(0.0);
+            }
+            let room_above = window.zoomed || ((r.top - area.top) as f32 * sy >= -4.0 && frame.max_y() <= height);
             let on_screen = frame.max_x() > 0.0 && frame.min_x() < width && frame.max_y() > 0.0;
             let fills_screen = frame.width * frame.height >= width * height * 0.9;
-            if room_above && on_screen && !fills_screen && !window.cover_only && frame.width >= 80.0 && frame.height >= 40.0 {
+            if room_above && on_screen && (!fills_screen || window.zoomed) && !window.cover_only && frame.width >= 80.0 && frame.height >= 40.0 {
                 let radius = window.radius.min(frame.width / 2.0).min(frame.height / 2.0);
                 let region = Rect { x: frame.x, y: frame.max_y() - radius, width: frame.width, height: 40.0 + radius };
                 surfaces.push(WindowSurface {

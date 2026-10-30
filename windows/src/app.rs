@@ -1,3 +1,4 @@
+// SNOWHUSH_PTBR_V1
 use std::cell::RefCell;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -30,6 +31,16 @@ const CLASS: PCWSTR = w!("SnowhushController");
 const WM_TRAY: u32 = WM_APP + 1;
 const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 const ID_SNOWFALL: u32 = 100;
+// SNOWHUSH_MODKIT native tray menu: non-overlapping ID ranges.
+const ID_MOD_SEASON: u32 = 400;
+const ID_MOD_STORM: u32 = 410;
+const ID_MOD_DENSITY: u32 = 420;
+const ID_MOD_SPEED: u32 = 430;
+const ID_MOD_WIND: u32 = 440;
+const ID_MOD_SIZE: u32 = 450;
+const ID_MOD_CAP: u32 = 460;
+const ID_MOD_CURSOR: u32 = 470;
+const ID_MOD_COLOR: u32 = 480;
 const ID_ACCUMULATE: u32 = 200;
 const ID_MELT: u32 = 201;
 const ID_SCREENSHOTS: u32 = 202;
@@ -218,28 +229,52 @@ fn show_menu(window: HWND, x: i32, y: i32) {
     let chosen = unsafe {
         let Ok(menu) = CreatePopupMenu() else { return };
         let Ok(snowfall) = CreatePopupMenu() else { return };
-        for (i, option) in Snowfall::ALL.iter().enumerate() {
-            let title: Vec<u16> = option.title().encode_utf16().chain([0]).collect();
+        for (i, title) in ["Desligado", "Leve", "Constante", "Forte", "Variável"].iter().enumerate() {
+            let title: Vec<u16> = title.encode_utf16().chain([0]).collect();
             let _ = AppendMenuW(snowfall, MF_STRING, (ID_SNOWFALL + i as u32) as usize, PCWSTR(title.as_ptr()));
         }
         let current = Snowfall::ALL.iter().position(|&s| s == settings.snowfall).unwrap_or(0) as u32;
         let _ = CheckMenuRadioItem(snowfall, ID_SNOWFALL, ID_SNOWFALL + 4, ID_SNOWFALL + current, MF_BYCOMMAND.0);
         let checked = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
-        let _ = AppendMenuW(menu, MF_POPUP, snowfall.0 as usize, w!("Snowfall"));
+        let _ = AppendMenuW(menu, MF_POPUP, snowfall.0 as usize, w!("Intensidade da neve"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING | checked(settings.accumulate), ID_ACCUMULATE as usize, w!("Accumulate"));
+        let _ = AppendMenuW(menu, MF_STRING | checked(settings.accumulate), ID_ACCUMULATE as usize, w!("Acumular neve"));
         let melt = MF_STRING | checked(settings.melt) | if settings.accumulate { MF_ENABLED } else { MF_GRAYED };
-        let _ = AppendMenuW(menu, melt, ID_MELT as usize, w!("Melt Snow"));
+        let _ = AppendMenuW(menu, melt, ID_MELT as usize, w!("Derreter neve"));
         let windows = MF_STRING | checked(settings.snow_on_windows) | if settings.behind_windows { MF_GRAYED } else { MF_ENABLED };
-        let _ = AppendMenuW(menu, windows, ID_WINDOWS as usize, w!("Snow on Windows"));
-        let _ = AppendMenuW(menu, MF_STRING, ID_CLEAR as usize, w!("Clear Snow"));
+        let _ = AppendMenuW(menu, windows, ID_WINDOWS as usize, w!("Neve nas janelas"));
+        let _ = AppendMenuW(menu, MF_STRING, ID_CLEAR as usize, w!("Limpar neve"));
+        // SNOWHUSH_MODKIT: native submenus work without a separate GUI framework.
+        let profile = settings.mod_profile;
+        let options: [(u32, u32, &str, &[&str]); 8] = [
+            (ID_MOD_SEASON, profile.season, "Estação", &["Neve", "Chuva (gotas)", "Outono (partículas coloridas)", "Primavera (partículas coloridas)"]),
+            (ID_MOD_DENSITY, profile.density, "Densidade das partículas", &["25%", "50%", "100%", "150%", "200%"]),
+            (ID_MOD_SPEED, profile.speed, "Velocidade da queda", &["50%", "100%", "150%", "200%"]),
+            (ID_MOD_WIND, profile.wind, "Vento", &["Sem vento", "Normal", "Forte", "Muito forte"]),
+            (ID_MOD_SIZE, profile.size, "Tamanho das partículas", &["50%", "100%", "150%", "200%"]),
+            (ID_MOD_CAP, profile.cap, "Limite de acúmulo", &["8 px", "16 px", "32 px", "64 px"]),
+            (ID_MOD_CURSOR, profile.cursor, "Raio de interação do cursor", &["6 px", "10 px", "18 px", "30 px"]),
+            (ID_MOD_COLOR, profile.color, "Cor das partículas", &["Padrão da estação", "Azul", "Rosa", "Vermelho", "Dourado"]),
+        ];
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING | checked(settings.behind_windows), ID_BEHIND as usize, w!("Behind Windows"));
-        let _ = AppendMenuW(menu, MF_STRING | checked(settings.show_in_screenshots), ID_SCREENSHOTS as usize, w!("Show in Screenshots"));
-        let _ = AppendMenuW(menu, MF_STRING | checked(login), ID_LOGIN as usize, w!("Open at Login"));
+        for (base, selected, label, choices) in options {
+            let Ok(submenu) = CreatePopupMenu() else { continue };
+            for (i, title) in choices.iter().enumerate() {
+                let text: Vec<u16> = title.encode_utf16().chain([0]).collect();
+                let _ = AppendMenuW(submenu, MF_STRING, (base + i as u32) as usize, PCWSTR(text.as_ptr()));
+            }
+            let _ = CheckMenuRadioItem(submenu, base, base + choices.len() as u32 - 1, base + selected, MF_BYCOMMAND.0);
+            let text: Vec<u16> = label.encode_utf16().chain([0]).collect();
+            let _ = AppendMenuW(menu, MF_POPUP, submenu.0 as usize, PCWSTR(text.as_ptr()));
+        }
+        let _ = AppendMenuW(menu, MF_STRING | checked(profile.storm), ID_MOD_STORM as usize, w!("Tempestade / rajadas"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING, ID_UPDATES as usize, w!("Check for Updates…"));
-        let _ = AppendMenuW(menu, MF_STRING, ID_QUIT as usize, w!("Quit"));
+        let _ = AppendMenuW(menu, MF_STRING | checked(settings.behind_windows), ID_BEHIND as usize, w!("Atrás das janelas"));
+        let _ = AppendMenuW(menu, MF_STRING | checked(settings.show_in_screenshots), ID_SCREENSHOTS as usize, w!("Mostrar em capturas de tela"));
+        let _ = AppendMenuW(menu, MF_STRING | checked(login), ID_LOGIN as usize, w!("Iniciar com o Windows"));
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(menu, MF_STRING, ID_UPDATES as usize, w!("Verificar atualizações…"));
+        let _ = AppendMenuW(menu, MF_STRING, ID_QUIT as usize, w!("Sair"));
 
         // A tray menu only closes on an outside click while its owner is in the foreground.
         let _ = SetForegroundWindow(window);
@@ -269,6 +304,42 @@ fn choose(window: HWND, chosen: u32, login: bool) {
             let Some(app) = app else { return };
             let settings = &mut app.settings;
             let command = match chosen {
+                ID_MOD_SEASON..=403 => {
+                    settings.mod_profile.season = chosen - ID_MOD_SEASON;
+                    Command::ModProfile(settings.mod_profile)
+                }
+                ID_MOD_STORM => {
+                    settings.mod_profile.storm = !settings.mod_profile.storm;
+                    Command::ModProfile(settings.mod_profile)
+                }
+                ID_MOD_DENSITY..=424 => {
+                    settings.mod_profile.density = chosen - ID_MOD_DENSITY;
+                    Command::ModProfile(settings.mod_profile)
+                }
+                ID_MOD_SPEED..=433 => {
+                    settings.mod_profile.speed = chosen - ID_MOD_SPEED;
+                    Command::ModProfile(settings.mod_profile)
+                }
+                ID_MOD_WIND..=443 => {
+                    settings.mod_profile.wind = chosen - ID_MOD_WIND;
+                    Command::ModProfile(settings.mod_profile)
+                }
+                ID_MOD_SIZE..=453 => {
+                    settings.mod_profile.size = chosen - ID_MOD_SIZE;
+                    Command::ModProfile(settings.mod_profile)
+                }
+                ID_MOD_CAP..=463 => {
+                    settings.mod_profile.cap = chosen - ID_MOD_CAP;
+                    Command::ModProfile(settings.mod_profile)
+                }
+                ID_MOD_CURSOR..=473 => {
+                    settings.mod_profile.cursor = chosen - ID_MOD_CURSOR;
+                    Command::ModProfile(settings.mod_profile)
+                }
+                ID_MOD_COLOR..=484 => {
+                    settings.mod_profile.color = chosen - ID_MOD_COLOR;
+                    Command::ModProfile(settings.mod_profile)
+                }
                 ID_ACCUMULATE => {
                     settings.accumulate = !settings.accumulate;
                     Command::Accumulate(settings.accumulate)
@@ -317,7 +388,7 @@ fn updated(window: HWND, result: std::result::Result<Option<Release>, String>, a
     let current = env!("CARGO_PKG_VERSION");
     match result {
         Ok(Some(release)) if asked => {
-            let text = format!("Snowhush {} is available. You have {current}.\n\nDownload it now?", release.version);
+            let text = format!("A versão {} do Snowhush está disponível. Sua versão: {current}.\n\nBaixar agora?", release.version);
             if message(window, &text, MB_YESNO | MB_ICONINFORMATION) == IDYES {
                 update::open(&release.url);
             }
@@ -328,17 +399,17 @@ fn updated(window: HWND, result: std::result::Result<Option<Release>, String>, a
                 (app.update.as_deref() != Some(&release.url)).then(|| app.update = Some(release.url.clone()))
             });
             if fresh.is_some() {
-                notify(window, &format!("Snowhush {} is available", release.version), "Click to download it.");
+                notify(window, &format!("Snowhush {} disponível", release.version), "Clique para baixar.");
             }
         }
         Ok(None) if asked => {
-            message(window, &format!("You're up to date.\n\nSnowhush {current} is the latest version."), MB_OK | MB_ICONINFORMATION);
+            message(window, &format!("Tudo atualizado.\n\nSnowhush {current} é a versão mais recente."), MB_OK | MB_ICONINFORMATION);
         }
         Ok(None) => {}
         Err(error) => {
             log!("update check failed: {error}");
             if asked {
-                message(window, &format!("Couldn't check for updates.\n\n{error}"), MB_OK | MB_ICONWARNING);
+                message(window, &format!("Não foi possível verificar atualizações.\n\n{error}"), MB_OK | MB_ICONWARNING);
             }
         }
     }

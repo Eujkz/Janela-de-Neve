@@ -14,6 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{HSTRING, PCWSTR, Result, w};
 
 use snowhush_core::geometry::V2;
+use snowhush_core::mod_config::ModProfile; // SNOWHUSH_MODKIT
 use snowhush_core::simulation::{ScatterPiece, SnowSimulation, Snowfall};
 
 use crate::desktop::{self, DesktopLayer};
@@ -34,6 +35,7 @@ pub struct Piece {
 
 pub enum Command {
     Snowfall(Snowfall),
+    ModProfile(ModProfile),
     Accumulate(bool),
     Melt(bool),
     SnowOnWindows(bool),
@@ -102,6 +104,10 @@ fn run_loop(commands: &Receiver<Command>, links: &Links, mut settings: Settings)
                 Command::Snowfall(snowfall) => {
                     settings.snowfall = snowfall;
                     screens.iter_mut().for_each(|screen| screen.simulation.set_snowfall(snowfall));
+                }
+                Command::ModProfile(profile) => {
+                    settings.mod_profile = profile;
+                    screens.iter_mut().for_each(|screen| screen.simulation.set_mod_profile(profile));
                 }
                 Command::Accumulate(on) => {
                     settings.accumulate = on;
@@ -348,6 +354,7 @@ fn new_simulation(monitor: &Monitor, settings: &Settings) -> SnowSimulation {
     let mut simulation = SnowSimulation::new(width as f32, height as f32, settings.snowfall);
     simulation.thaws = settings.melt;
     simulation.accumulates = settings.accumulate;
+    simulation.set_mod_profile(settings.mod_profile); // SNOWHUSH_MODKIT
     simulation.set_snowfall_held(!settings.welcomed);
     simulation
 }

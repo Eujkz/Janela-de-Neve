@@ -1,3 +1,4 @@
+// SNOWHUSH_PTBR_V1
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Once;
@@ -17,8 +18,8 @@ use crate::snow::Piece;
 const CLASS: PCWSTR = w!("SnowhushWelcome");
 const WIDTH: f32 = 440.0;
 const HEIGHT: f32 = 430.0;
-const TITLE: &str = "IT'S SNOWING\nON YOUR DESKTOP.";
-const BODY: &str = "Snowhush lives in the system tray. Click its icon to change the snowfall, let the drift melt, or keep the snow off your windows. Sweep it aside with your cursor.";
+const TITLE: &str = "ESTÁ NEVANDO\nNA SUA TELA.";
+const BODY: &str = "O Snowhush fica na bandeja do sistema. Clique no ícone para escolher a intensidade, configurar os efeitos e controlar a neve nas janelas. Afaste a neve com o cursor.";
 /// Spacing of the pieces that fly off.
 const CELL: f32 = 6.0;
 /// Spacing of the crumbling front: fine enough that its edge reads as a line, not as squares.
@@ -122,7 +123,7 @@ fn open() -> Result<()> {
 }
 
 fn content(pressed: bool) -> Content<'static> {
-    Content { icon: 112.0, title: TITLE, title_size: 34.0, body: BODY, button: "GET STARTED", pressed, closable: false }
+    Content { icon: 112.0, title: TITLE, title_size: 34.0, body: BODY, button: "COMEÇAR", pressed, closable: false }
 }
 
 unsafe extern "system" fn procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {

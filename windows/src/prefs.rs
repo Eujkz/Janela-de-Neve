@@ -8,6 +8,7 @@ use windows::Win32::UI::WindowsAndMessaging::{SPI_GETCLIENTAREAANIMATION, SYSTEM
 use windows::core::{BOOL, PCWSTR, w};
 
 use snowhush_core::simulation::Snowfall;
+use snowhush_core::mod_config::ModProfile; // SNOWHUSH_MODKIT
 
 const KEY: PCWSTR = w!("Software\\Snowhush");
 const RUN: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
@@ -22,6 +23,7 @@ pub struct Settings {
     pub behind_windows: bool,
     pub show_in_screenshots: bool,
     pub welcomed: bool,
+    pub mod_profile: ModProfile,
 }
 
 impl Settings {
@@ -36,6 +38,17 @@ impl Settings {
             behind_windows: read(w!("behindWindows")).is_some_and(|v| v != 0),
             show_in_screenshots: read(w!("showInScreenshots")).is_some_and(|v| v != 0),
             welcomed: read(w!("welcomed")).is_some_and(|v| v != 0),
+            mod_profile: ModProfile {
+                season: read(w!("modSeason")).unwrap_or(0).min(3),
+                storm: read(w!("modStorm")).is_some_and(|v| v != 0),
+                density: read(w!("modDensity")).unwrap_or(2).min(4),
+                speed: read(w!("modSpeed")).unwrap_or(1).min(3),
+                wind: read(w!("modWind")).unwrap_or(1).min(3),
+                size: read(w!("modSize")).unwrap_or(1).min(3),
+                cap: read(w!("modCap")).unwrap_or(2).min(3),
+                cursor: read(w!("modCursor")).unwrap_or(1).min(3),
+                color: read(w!("modColor")).unwrap_or(0).min(4),
+            },
         }
     }
 
@@ -48,6 +61,16 @@ impl Settings {
         write(w!("behindWindows"), self.behind_windows as u32);
         write(w!("showInScreenshots"), self.show_in_screenshots as u32);
         write(w!("welcomed"), self.welcomed as u32);
+        let p = self.mod_profile;
+        write(w!("modSeason"), p.season);
+        write(w!("modStorm"), p.storm as u32);
+        write(w!("modDensity"), p.density);
+        write(w!("modSpeed"), p.speed);
+        write(w!("modWind"), p.wind);
+        write(w!("modSize"), p.size);
+        write(w!("modCap"), p.cap);
+        write(w!("modCursor"), p.cursor);
+        write(w!("modColor"), p.color);
     }
 }
 
